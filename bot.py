@@ -1,6 +1,5 @@
 import os
 import sys
-import time
 import asyncio
 from pyrogram import Client, filters
 from pyrogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
@@ -18,11 +17,6 @@ class BotConfig:
 # ==================== HELPER FUNCTIONS ====================
 def is_authorized(user_id: int) -> bool:
     return user_id == BotConfig.ADMIN_ID or user_id in BotConfig.SUDO_USERS
-
-async def send_health_ping():
-    while True:
-        print("🫀 Health ping")
-        await asyncio.sleep(300)
 
 # ==================== BOT INITIALIZATION ====================
 bot = Client(
@@ -54,6 +48,7 @@ async def start_command(client: Client, message: Message):
     )
 
 # ==================== CLONING FUNCTION ====================
+@bot.on_callback_query(filters.regex("start_clone"))
 async def clone_messages(client: Client, callback: CallbackQuery):
     if not all([BotConfig.TARGET_CHAT, BotConfig.SOURCE_CHAT]):
         await callback.answer("❌ Set target/source first!", show_alert=True)
@@ -80,19 +75,7 @@ async def clone_messages(client: Client, callback: CallbackQuery):
         BotConfig.CLONING_ACTIVE = False
         await status_msg.edit("✅ Clone completed!")
 
-# ==================== MAIN EXECUTION ====================
+# ==================== RUN BOT ====================
 if __name__ == "__main__":
-    async def main():
-        await bot.start()
-        asyncio.create_task(send_health_ping())
-        print(f"""
-⚡ Bot Started Successfully!
-┌ Admin: {BotConfig.ADMIN_ID}
-├ Sudo Users: {BotConfig.SUDO_USERS}
-└ Ready to clone!
-""")
-        await idle()
-        await bot.stop()
-
-    from pyrogram.idle import idle
-    asyncio.run(main())
+    print("🟢 Starting bot... Skipping health check.")
+    bot.run()
