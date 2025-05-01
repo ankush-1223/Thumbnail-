@@ -1,13 +1,23 @@
-# Telegram Cloning Bot for Keyob
+# Telegram Cloner Bot (Keyob Edition)
 
-### Features
-- Clones media from public/forwardable channels.
-- Removes custom thumbnails.
-- Allows admin to set main channel and thumbnail via Telegram.
-- Appends Telegram restriction footer.
-- Keyob deployment ready.
+## Deployment Steps
 
-### Deployment on Keyob
-1. Upload all files.
-2. Set environment variables in `.env` (based on `.env.example`).
-3. Run the bot with `python bot.py`.
+1. **Fork this repo** (or upload files manually)
+2. **On Keyob**:
+   - Create new application
+   - Connect to your GitHub repo
+   - Go to **Environment Variables** and add:
+     - `API_ID`, `API_HASH`, `BOT_TOKEN`, `ADMIN_ID`
+3. **Start Deployment**:
+   - Builder Pack: 
+     ```bash
+     pip install -r requirements.txt
+     python bot.py
+     ```
+   - Docker: 
+     ```bash
+     docker build -t clonerbot . && docker run -d clonerbot
+     ```
+
+## Post-Deployment
+- Configure via Telegram:
