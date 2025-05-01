@@ -1,4 +1,4 @@
 pyrogram==2.0.106
 python-dotenv==0.19.2
 tgcrypto==1.2.3
-Pillow==9.4.0  # For watermark
+Pillow==10.1.0  # Updated version that supports Python 3.13
