@@ -1,81 +1,67 @@
 import os
-import sys
 import asyncio
 from pyrogram import Client, filters
-from pyrogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
+from pyrogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton
+from flask import Flask
+from threading import Thread
 
-# ==================== BOT CONFIGURATION ====================
-class BotConfig:
-    ADMIN_ID = int(os.environ.get("ADMIN_ID", 0))
-    SUDO_USERS = [int(x) for x in os.environ.get("SUDO_USERS", "").split(",") if x]
-    TARGET_CHAT = ""
-    SOURCE_CHAT = ""
-    SKIP_MSG = 0
-    FLOOD_DELAY = 32
-    CLONING_ACTIVE = False
+# ================= FLASK HEALTH SERVER =================
+app = Flask(__name__)
 
-# ==================== HELPER FUNCTIONS ====================
-def is_authorized(user_id: int) -> bool:
-    return user_id == BotConfig.ADMIN_ID or user_id in BotConfig.SUDO_USERS
+@app.route('/')
+def health_check():
+    return "OK", 200
 
-# ==================== BOT INITIALIZATION ====================
-bot = Client(
-    "UltimateCloner",
-    api_id=int(os.environ["API_ID"]),
-    api_hash=os.environ["API_HASH"],
-    bot_token=os.environ["BOT_TOKEN"],
-    workers=20
-)
+def run_health_server():
+    app.run(host='0.0.0.0', port=8080)
 
-# ==================== COMMAND HANDLERS ====================
+Thread(target=run_health_server).start()
+
+# ================= BOT CONFIG =================
+API_ID = int(os.environ.get("API_ID"))
+API_HASH = os.environ.get("API_HASH")
+BOT_TOKEN = os.environ.get("BOT_TOKEN")
+ADMIN_ID = int(os.environ.get("ADMIN_ID", 0))
+
+bot = Client("forward_bot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
+
+# ================= START HANDLER =================
 @bot.on_message(filters.command("start") & filters.private)
-async def start_command(client: Client, message: Message):
-    if not is_authorized(message.from_user.id):
-        await message.reply("🚫 Unauthorized!")
-        return
+async def start(client: Client, message: Message):
+    name = message.from_user.first_name
+
+    text = f"""ʜɪ {name}
+
+ɪ'ᴍ ᴀ ᴀᴅᴠᴀɴᴄᴇᴅ ꜰᴏʀᴡᴀʀᴅ ʙᴏᴛ
+ɪ ᴄᴀɴ ꜰᴏʀᴡᴀʀᴅ ᴀʟʟ ᴍᴇssᴀɢᴇ ꜰʀᴏᴍ ᴏɴᴇ ᴄʜᴀɴɴᴇʟ ᴛᴏ ᴀɴᴏᴛʜᴇʀ ᴄʜᴀɴɴᴇʟ
+
+ᴄʟɪᴄᴋ ʜᴇʟᴘ ʙᴜᴛᴛᴏɴ ᴛᴏ ᴋɴᴏᴡ ᴍᴏʀᴇ ᴀʙᴏᴜᴛ ᴍᴇ"""
 
     buttons = InlineKeyboardMarkup([
-        [InlineKeyboardButton("⚙️ Setup", callback_data="setup")],
-        [InlineKeyboardButton("👑 Sudo Users", callback_data="sudo_menu")],
-        [InlineKeyboardButton("🚀 Start Cloning", callback_data="start_clone")]
+        [InlineKeyboardButton("❣️ DEVELOPER ❣️", url="https://t.me/YourDeveloper")],
+        [InlineKeyboardButton("🔍 SUPPORT GROUP", url="https://t.me/YourSupportGroup"),
+         InlineKeyboardButton("🤖 UPDATE CHANNEL", url="https://t.me/YourUpdateChannel")],
+        [InlineKeyboardButton("💝 SUBSCRIBE MY YOUTUBE CHANNEL", url="https://youtube.com/@YourChannel")],
+        [InlineKeyboardButton("👩‍💻 HELP", callback_data="help"),
+         InlineKeyboardButton("🧑‍🏫 ABOUT", callback_data="about")],
+        [InlineKeyboardButton("⚙️ SETTINGS", callback_data="settings")]
     ])
-    
-    await message.reply(
-        f"👑 Owner: <code>{BotConfig.ADMIN_ID}</code>\n"
-        f"⚡ Sudo Users: {len(BotConfig.SUDO_USERS)}\n\n"
-        "Configure everything via buttons:",
-        reply_markup=buttons
-    )
 
-# ==================== CLONING FUNCTION ====================
-@bot.on_callback_query(filters.regex("start_clone"))
-async def clone_messages(client: Client, callback: CallbackQuery):
-    if not all([BotConfig.TARGET_CHAT, BotConfig.SOURCE_CHAT]):
-        await callback.answer("❌ Set target/source first!", show_alert=True)
-        return
+    await message.reply(text, reply_markup=buttons)
 
-    BotConfig.CLONING_ACTIVE = True
-    status_msg = await callback.message.reply("🔄 Starting clone process...")
+# ================= CALLBACK HANDLERS (Optional) =================
+@bot.on_callback_query(filters.regex("help"))
+async def help_cb(client, callback):
+    await callback.answer("ℹ️ Help menu coming soon!", show_alert=True)
 
-    try:
-        async for msg in client.get_chat_history(BotConfig.SOURCE_CHAT):
-            if not BotConfig.CLONING_ACTIVE:
-                break
+@bot.on_callback_query(filters.regex("about"))
+async def about_cb(client, callback):
+    await callback.answer("👤 Made by Developer", show_alert=True)
 
-            await client.copy_message(
-                chat_id=BotConfig.TARGET_CHAT,
-                from_chat_id=BotConfig.SOURCE_CHAT,
-                message_id=msg.id
-            )
-            await asyncio.sleep(BotConfig.FLOOD_DELAY)
-            
-    except Exception as e:
-        await status_msg.edit(f"❌ Error: {str(e)}")
-    finally:
-        BotConfig.CLONING_ACTIVE = False
-        await status_msg.edit("✅ Clone completed!")
+@bot.on_callback_query(filters.regex("settings"))
+async def settings_cb(client, callback):
+    await callback.answer("⚙️ Settings not available yet.", show_alert=True)
 
-# ==================== RUN BOT ====================
-if __name__ == "__main__":
-    print("🟢 Starting bot... Skipping health check.")
-    bot.run()
+# ================= RUN =================
+print("✅ Bot is running with health check server...")
+bot.run()
