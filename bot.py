@@ -97,9 +97,7 @@ async def clone_message(message): global target_channel, default_thumb media = m
 # Apply watermark if needed
 if default_thumb and default_thumb.startswith("WATERMARK:"):
     watermark = default_thumb.split(":", 1)[1]
-    caption = f"{caption}\n
-
-Watermark: {watermark}"
+    caption = f"{caption}\n\nWatermark: {watermark}"
 
 try:
     # Forwarding/Cloning logic
