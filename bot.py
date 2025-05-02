@@ -29,7 +29,7 @@ sudo_users = set()
 target_channel = None
 default_thumb = None
 
-Buttons UI
+#Buttons UI
 
 def main_menu(): return InlineKeyboardMarkup([ [ InlineKeyboardButton("Set Channel", callback_data="set_channel"), InlineKeyboardButton("Set Thumbnail", callback_data="set_thumb") ], [ InlineKeyboardButton("Reset Thumbnail", callback_data="reset_thumb"), InlineKeyboardButton("Add Sudo", callback_data="add_sudo") ], [ InlineKeyboardButton("Help", callback_data="help") ] ])
 
