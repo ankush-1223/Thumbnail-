@@ -198,5 +198,5 @@ if __name__ == "__main__":
 """)
         await idle()
 
-    from pyrogram.idle import idle
+    from pyrogram import idle  # ✅ Correct
     asyncio.run(start_bot())
