@@ -8,20 +8,17 @@ from pyrogram.types import (
     Message, InlineKeyboardMarkup,
     InlineKeyboardButton, CallbackQuery
 )
-from pyrogram.idle import idle
 
 # ==================== HEALTH CHECK SYSTEM ====================
 class HealthCheck:
     @staticmethod
     def verify():
-        """Handle Keyob health check requests"""
         if "--health-check" in sys.argv or "healthcheck" in sys.argv:
             print("HEALTH_CHECK_OK")
             sys.exit(0)
 
     @staticmethod
     async def keep_alive():
-        """Prevent instance shutdown with periodic pings"""
         while True:
             print("🫀 [Health] Alive at", time.strftime("%Y-%m-%d %H:%M:%S"))
             await asyncio.sleep(300)
@@ -48,11 +45,9 @@ class BotConfig:
         'errors': 0
     }
 
-# ==================== AUTHORIZATION ====================
 def is_authorized(user_id: int) -> bool:
     return user_id == BotConfig.ADMIN_ID or user_id in BotConfig.SUDO_USERS
 
-# ==================== BOT INITIALIZATION ====================
 bot = Client(
     name="UltimateCloner",
     api_id=BotConfig.API_ID,
@@ -62,7 +57,6 @@ bot = Client(
     sleep_threshold=60
 )
 
-# ==================== COMMAND HANDLERS ====================
 @bot.on_message(filters.command("start") & filters.private)
 async def start_command(client: Client, message: Message):
     if not is_authorized(message.from_user.id):
@@ -82,12 +76,10 @@ async def start_command(client: Client, message: Message):
         f"🤖 **Ultimate Cloner Bot**\n\n"
         f"▫️ **Owner:** `{BotConfig.ADMIN_ID}`\n"
         f"▫️ **Sudo Users:** `{len(BotConfig.SUDO_USERS)}`\n"
-        f"▫️ **Status:** `{'Ready' if not BotConfig.CLONING_ACTIVE else 'Cloning...'}`\n\n"
-        "Configure your cloning settings:",
+        f"▫️ **Status:** `{'Ready' if not BotConfig.CLONING_ACTIVE else 'Cloning...'}`",
         reply_markup=buttons
     )
 
-# ==================== CLONING SYSTEM ====================
 async def update_status():
     while BotConfig.CLONING_ACTIVE:
         progress = (BotConfig.stats['forwarded'] / 
@@ -150,7 +142,6 @@ async def clone_messages(client: Client):
             f"Total errors: `{BotConfig.stats['errors']}`"
         )
 
-# ==================== CALLBACK HANDLERS ====================
 @bot.on_callback_query()
 async def handle_callbacks(client: Client, query: CallbackQuery):
     if query.data == "start_cloning":
@@ -181,7 +172,6 @@ async def handle_callbacks(client: Client, query: CallbackQuery):
         )
         await query.message.edit(text)
 
-# ==================== MAIN FUNCTION ====================
 async def main():
     HealthCheck.verify()
     await bot.start()
@@ -199,9 +189,8 @@ async def main():
 ▫️ Admin ID: {BotConfig.ADMIN_ID}
 ▫️ Ready to clone!
 """)
-    await idle()
-    await bot.stop()
 
-# ==================== ENTRY POINT ====================
+    await asyncio.Event().wait()  # Keeps bot running
+
 if __name__ == "__main__":
     asyncio.run(main())
