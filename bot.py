@@ -3,13 +3,12 @@ import sys
 import time
 import asyncio
 from typing import List, Dict, Optional
+from threading import Thread
+from flask import Flask
 from pyrogram import Client, filters, enums
-from pyrogram.types import (
-    Message, InlineKeyboardMarkup,
-    InlineKeyboardButton, CallbackQuery
-)
+from pyrogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
 
-# ==================== HEALTH CHECK SYSTEM ====================
+# =============== HEALTH CHECK SYSTEM ===============
 class HealthCheck:
     @staticmethod
     def verify():
@@ -23,7 +22,7 @@ class HealthCheck:
             print("🫀 [Health] Alive at", time.strftime("%Y-%m-%d %H:%M:%S"))
             await asyncio.sleep(300)
 
-# ==================== BOT CONFIGURATION ====================
+# =============== BOT CONFIGURATION ===============
 class BotConfig:
     API_ID = int(os.environ.get("API_ID", 0))
     API_HASH = os.environ.get("API_HASH", "")
@@ -37,7 +36,7 @@ class BotConfig:
     FLOOD_DELAY: int = 32
     CLONING_ACTIVE: bool = False
     STATUS_MESSAGE: Optional[Message] = None
-
+    
     stats: Dict[str, int] = {
         'fetched': 0,
         'forwarded': 0,
@@ -48,6 +47,7 @@ class BotConfig:
 def is_authorized(user_id: int) -> bool:
     return user_id == BotConfig.ADMIN_ID or user_id in BotConfig.SUDO_USERS
 
+# =============== BOT INSTANCE ===============
 bot = Client(
     name="UltimateCloner",
     api_id=BotConfig.API_ID,
@@ -57,6 +57,7 @@ bot = Client(
     sleep_threshold=60
 )
 
+# =============== /start COMMAND ===============
 @bot.on_message(filters.command("start") & filters.private)
 async def start_command(client: Client, message: Message):
     if not is_authorized(message.from_user.id):
@@ -76,10 +77,12 @@ async def start_command(client: Client, message: Message):
         f"🤖 **Ultimate Cloner Bot**\n\n"
         f"▫️ **Owner:** `{BotConfig.ADMIN_ID}`\n"
         f"▫️ **Sudo Users:** `{len(BotConfig.SUDO_USERS)}`\n"
-        f"▫️ **Status:** `{'Ready' if not BotConfig.CLONING_ACTIVE else 'Cloning...'}`",
+        f"▫️ **Status:** `{'Ready' if not BotConfig.CLONING_ACTIVE else 'Cloning...'}`\n\n"
+        "Configure your cloning settings:",
         reply_markup=buttons
     )
 
+# =============== CLONING FUNCTION ===============
 async def update_status():
     while BotConfig.CLONING_ACTIVE:
         progress = (BotConfig.stats['forwarded'] / 
@@ -142,6 +145,7 @@ async def clone_messages(client: Client):
             f"Total errors: `{BotConfig.stats['errors']}`"
         )
 
+# =============== CALLBACK QUERIES ===============
 @bot.on_callback_query()
 async def handle_callbacks(client: Client, query: CallbackQuery):
     if query.data == "start_cloning":
@@ -157,27 +161,30 @@ async def handle_callbacks(client: Client, query: CallbackQuery):
         asyncio.create_task(clone_messages(client))
         
     elif query.data == "bot_setup":
-        await query.answer("⚙️ Setup feature coming soon...", show_alert=True)
+        await query.answer("⚙️ Setup options not implemented yet!", show_alert=True)
         
     elif query.data == "sudo_menu":
-        await query.answer("👑 Sudo management coming soon...", show_alert=True)
+        await query.answer("👑 Sudo management not implemented yet!", show_alert=True)
 
-    elif query.data == "view_stats":
-        text = (
-            f"📊 **Cloning Statistics**\n\n"
-            f"▫️ Fetched: `{BotConfig.stats['fetched']}`\n"
-            f"▫️ Forwarded: `{BotConfig.stats['forwarded']}`\n"
-            f"▫️ Skipped: `{BotConfig.stats['skipped']}`\n"
-            f"▫️ Errors: `{BotConfig.stats['errors']}`"
-        )
-        await query.message.edit(text)
+# =============== FLASK SERVER FOR KEYOB TCP CHECK ===============
+app = Flask(__name__)
 
-async def main():
+@app.route('/')
+def home():
+    return "Bot is alive!"
+
+def run_web():
+    app.run(host="0.0.0.0", port=8080)
+
+# =============== START EVERYTHING ===============
+if __name__ == "__main__":
     HealthCheck.verify()
-    await bot.start()
-    asyncio.create_task(HealthCheck.keep_alive())
-
-    print(f"""
+    Thread(target=run_web).start()
+    
+    async def start_bot():
+        await bot.start()
+        asyncio.create_task(HealthCheck.keep_alive())
+        print(f"""
 ███████╗ ██████╗ ████████╗
 ██╔════╝██╔═══██╗╚══██╔══╝
 █████╗  ██║   ██║   ██║   
@@ -189,8 +196,7 @@ async def main():
 ▫️ Admin ID: {BotConfig.ADMIN_ID}
 ▫️ Ready to clone!
 """)
+        await idle()
 
-    await asyncio.Event().wait()  # Keeps bot running
-
-if __name__ == "__main__":
-    asyncio.run(main())
+    from pyrogram.idle import idle
+    asyncio.run(start_bot())
