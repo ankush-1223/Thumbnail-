@@ -1,248 +1,162 @@
-import os
-import sys
-import time
+from pyrogram import Client, filters
+from pyrogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton
+from config import API_ID, API_HASH, BOT_TOKEN
 import asyncio
-from threading import Thread
-from flask import Flask
-from pyrogram import Client, filters, idle
-from pyrogram.types import (
-    Message, InlineKeyboardMarkup,
-    InlineKeyboardButton, CallbackQuery
-)
+import os
 
-# ==================== FLASK SERVER ====================
-app = Flask(__name__)
+app = Client("cloner_bot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
 
-@app.route('/')
-def health_check():
-    return "BOT_IS_ALIVE", 200
+# Memory storage
+USER_STATE = {}
+SUDO_USERS = set()
+THUMBNAIL_URL = {}
+TARGET_CHANNEL = {}
+WATERMARK_TEXT = {}
 
-def run_flask():
-    app.run(host='0.0.0.0', port=8080)
+DEFAULT_SLEEP = [3, 5, 8, 13, 21, 32]  # exponential sleep fallback
 
-# ==================== BOT CONFIGURATION ====================
-class Config:
-    # Required (from Keyob environment)
-    API_ID = int(os.environ["API_ID"])
-    API_HASH = os.environ["API_HASH"]
-    BOT_TOKEN = os.environ["BOT_TOKEN"]
-    ADMIN_ID = int(os.environ["ADMIN_ID"])
-    
-    # Configurable via bot
-    SUDO_USERS = []
-    TARGET_CHAT = ""
-    SOURCE_CHAT = ""
-    SKIP_MSG = 0
-    FLOOD_DELAY = 32  # seconds
-    CLONING_ACTIVE = False
-    STATUS_MSG = None
-    CURRENT_SETTING = None  # Track which setting is being configured
-    
-    # Statistics
-    stats = {
-        'total': 0,
-        'forwarded': 0,
-        'skipped': 0,
-        'errors': 0
-    }
+def is_sudo(user_id):
+    return user_id in SUDO_USERS
 
-# ==================== BOT SETUP ====================
-bot = Client(
-    "UltimateCloner",
-    api_id=Config.API_ID,
-    api_hash=Config.API_HASH,
-    bot_token=Config.BOT_TOKEN,
-    workers=100
-)
+@app.on_message(filters.command("start"))
+async def start(client, message):
+    await message.reply_text(
+        "Welcome! This bot can clone messages to your target channel with watermark/thumbnail.\n\n"
+        "**Commands:**\n"
+        "`/setchannel` - Set target channel ID\n"
+        "`/setthumb` - Set thumb URL or watermark\n"
+        "`/d` - Reset to default thumbnail\n"
+        "`/id` - Get ID\n"
+        "`/clone <start-end>` or forward messages directly",
+        quote=True
+    )
 
-# ==================== UTILITIES ====================
-def is_admin(user_id):
-    return user_id == Config.ADMIN_ID or user_id in Config.SUDO_USERS
+@app.on_message(filters.command("id"))
+async def get_id(client, message):
+    await message.reply_text(f"Your ID: `{message.from_user.id}`\nChat ID: `{message.chat.id}`", quote=True)
 
-async def update_status():
-    """Update progress message"""
-    while Config.CLONING_ACTIVE:
-        total_effective = max(1, Config.stats['total'] - Config.SKIP_MSG)
-        progress = (Config.stats['forwarded'] / total_effective) * 100
-        
-        text = (
-            "🔄 **Cloning Progress**\n\n"
-            f"• Total: `{Config.stats['total']}`\n"
-            f"• Forwarded: `{Config.stats['forwarded']}`\n"
-            f"• Skipped: `{Config.stats['skipped']}`\n"
-            f"• Errors: `{Config.stats['errors']}`\n"
-            f"• Progress: `{progress:.2f}%`\n\n"
-            f"⏳ Delay: `{Config.FLOOD_DELAY}s`"
-        )
-        
-        try:
-            if Config.STATUS_MSG:
-                await Config.STATUS_MSG.edit(text)
-            await asyncio.sleep(5)
-        except Exception as e:
-            print(f"Status error: {e}")
+@app.on_message(filters.command("setchannel"))
+async def set_channel(client, message):
+    if not is_sudo(message.from_user.id):
+        return await message.reply("You are not authorized.")
+    USER_STATE[message.from_user.id] = "waiting_channel"
+    await message.reply("Send the target channel ID (e.g., -1001234567890) or `/d` to clone personally.")
 
-# ==================== COMMAND HANDLERS ====================
-@bot.on_message(filters.command("start") & filters.private)
-async def start_cmd(client, message):
-    if not is_admin(message.from_user.id):
-        await message.reply("🚫 Unauthorized!")
-        return
-
-    buttons = InlineKeyboardMarkup([
-        [InlineKeyboardButton("⚙️ Setup", callback_data="setup_menu")],
-        [InlineKeyboardButton("🚀 Start Cloning", callback_data="start_clone")]
-    ])
-    
+@app.on_message(filters.command("setthumb"))
+async def set_thumb(client, message):
+    if not is_sudo(message.from_user.id):
+        return await message.reply("You are not authorized.")
+    USER_STATE[message.from_user.id] = "waiting_thumb"
     await message.reply(
-        f"🤖 **Ultimate Cloner**\n\n"
-        f"👑 Owner: `{Config.ADMIN_ID}`\n"
-        f"📊 Status: `{'✅ Ready' if not Config.CLONING_ACTIVE else '🔄 Cloning'}`\n"
-        f"⏱ Delay: `{Config.FLOOD_DELAY}s`\n\n"
-        f"▫️ Target: `{Config.TARGET_CHAT or 'Not set'}`\n"
-        f"▫️ Source: `{Config.SOURCE_CHAT or 'Not set'}`",
-        reply_markup=buttons
+        "Send thumbnail URL or send plain text (like Admin) for watermark.\n\nUse `/d` to reset permanently."
     )
 
-# ==================== SETUP MENU ====================
-@bot.on_callback_query(filters.regex("^setup_menu$"))
-async def setup_menu(client, query):
-    buttons = InlineKeyboardMarkup([
-        [InlineKeyboardButton("🎯 Set Target", callback_data="set_target")],
-        [InlineKeyboardButton("🔗 Set Source", callback_data="set_source")],
-        [InlineKeyboardButton("⏱ Set Delay", callback_data="set_delay")],
-        [InlineKeyboardButton("🔙 Back", callback_data="main_menu")]
-    ])
-    
-    await query.message.edit(
-        "⚙️ **Bot Setup Menu**\n\n"
-        "Configure your cloning settings:",
-        reply_markup=buttons
-    )
+@app.on_message(filters.command("d"))
+async def reset_thumb(client, message):
+    if not is_sudo(message.from_user.id):
+        return await message.reply("You are not authorized.")
+    uid = message.from_user.id
+    THUMBNAIL_URL.pop(uid, None)
+    WATERMARK_TEXT.pop(uid, None)
+    await message.reply("Thumbnail/watermark removed. Default Telegram behavior restored.")
 
-# ==================== SETUP HANDLERS ====================
-@bot.on_callback_query(filters.regex("^set_"))
-async def setup_handler(client, query):
-    if query.data == "set_target":
-        Config.CURRENT_SETTING = "target"
-        await query.message.edit("📢 Send me the target channel username or ID:")
-        
-    elif query.data == "set_source":
-        Config.CURRENT_SETTING = "source"
-        await query.message.edit("🔗 Send me the source channel username or ID:")
-        
-    elif query.data == "set_delay":
-        Config.CURRENT_SETTING = "delay"
-        await query.message.edit("⏱ Send me the delay between forwards (in seconds):")
-
-@bot.on_message(filters.private & filters.text & ~filters.command("start"))
-async def handle_setting_input(client, message):
-    if not is_admin(message.from_user.id):
+@app.on_message(filters.command("addsudo"))
+async def add_sudo(client, message):
+    if message.from_user.id != message.from_user.id:
         return
-        
-    if Config.CURRENT_SETTING == "target":
-        Config.TARGET_CHAT = message.text.strip()
-        await message.reply(f"✅ Target set to: `{Config.TARGET_CHAT}`")
-        
-    elif Config.CURRENT_SETTING == "source":
-        Config.SOURCE_CHAT = message.text.strip()
-        await message.reply(f"✅ Source set to: `{Config.SOURCE_CHAT}`")
-        
-    elif Config.CURRENT_SETTING == "delay":
-        try:
-            Config.FLOOD_DELAY = int(message.text.strip())
-            await message.reply(f"✅ Delay set to: `{Config.FLOOD_DELAY}s`")
-        except ValueError:
-            await message.reply("❌ Please send a valid number")
-            
-    Config.CURRENT_SETTING = None
-
-# ==================== CLONING SYSTEM ====================
-async def clone_messages():
-    Config.CLONING_ACTIVE = True
-    Config.STATUS_MSG = await bot.send_message(
-        Config.ADMIN_ID,
-        "🔄 Starting cloning process..."
-    )
-    asyncio.create_task(update_status())
-    
+    if len(message.command) < 2:
+        return await message.reply("Usage: /addsudo <user_id>")
     try:
-        async for msg in bot.get_chat_history(Config.SOURCE_CHAT):
-            if not Config.CLONING_ACTIVE:
-                break
-                
-            Config.stats['total'] += 1
-            
-            if Config.stats['total'] <= Config.SKIP_MSG:
-                Config.stats['skipped'] += 1
-                continue
-                
+        SUDO_USERS.add(int(message.command[1]))
+        await message.reply("SUDO user added.")
+    except:
+        await message.reply("Invalid ID.")
+
+@app.on_message(filters.text & filters.private)
+async def handle_input(client, message: Message):
+    uid = message.from_user.id
+    if not is_sudo(uid):
+        return await message.reply("You are not authorized.")
+
+    if USER_STATE.get(uid) == "waiting_channel":
+        if message.text.strip() == "/d":
+            TARGET_CHANNEL[uid] = None
+            await message.reply("Now cloning personally.")
+        else:
             try:
-                await bot.copy_message(
-                    chat_id=Config.TARGET_CHAT,
-                    from_chat_id=Config.SOURCE_CHAT,
-                    message_id=msg.id
-                )
-                Config.stats['forwarded'] += 1
-                await asyncio.sleep(Config.FLOOD_DELAY)
-            except Exception as e:
-                Config.stats['errors'] += 1
-                print(f"Clone error: {e}")
-                
-    finally:
-        Config.CLONING_ACTIVE = False
-        await Config.STATUS_MSG.edit(
-            f"✅ **Completed**\n\n"
-            f"Forwarded: `{Config.stats['forwarded']}`\n"
-            f"Errors: `{Config.stats['errors']}`"
-        )
+                TARGET_CHANNEL[uid] = int(message.text.strip())
+                await message.reply(f"Target channel set to `{TARGET_CHANNEL[uid]}`.")
+            except:
+                await message.reply("Invalid channel ID.")
+        USER_STATE.pop(uid)
 
-# ==================== CALLBACK HANDLERS ====================
-@bot.on_callback_query(filters.regex("^start_clone$"))
-async def start_cloning(client, query):
-    if Config.CLONING_ACTIVE:
-        await query.answer("Already cloning!", show_alert=True)
-        return
-        
-    if not all([Config.TARGET_CHAT, Config.SOURCE_CHAT]):
-        await query.answer("Set target/source first!", show_alert=True)
-        return
-        
-    await query.answer("Starting clone job...")
-    asyncio.create_task(clone_messages())
+    elif USER_STATE.get(uid) == "waiting_thumb":
+        if message.text.strip() == "/d":
+            THUMBNAIL_URL.pop(uid, None)
+            WATERMARK_TEXT.pop(uid, None)
+            await message.reply("Thumbnail reset to default.")
+        elif message.text.startswith("http"):
+            THUMBNAIL_URL[uid] = message.text.strip()
+            WATERMARK_TEXT.pop(uid, None)
+            await message.reply("Thumbnail set from URL.")
+        else:
+            WATERMARK_TEXT[uid] = message.text.strip()
+            THUMBNAIL_URL.pop(uid, None)
+            await message.reply(f"Watermark set: {message.text.strip()}")
+        USER_STATE.pop(uid)
 
-@bot.on_callback_query(filters.regex("^main_menu$"))
-async def main_menu(client, query):
-    await start_cmd(client, query.message)
+@app.on_message(filters.command("clone"))
+async def clone_range(client, message):
+    if not is_sudo(message.from_user.id):
+        return await message.reply("You are not authorized.")
+    args = message.text.split(" ")
+    if len(args) != 2 or '-' not in args[1]:
+        return await message.reply("Usage: /clone 1-100")
+    start, end = map(int, args[1].split('-'))
+    uid = message.from_user.id
+    dest = TARGET_CHANNEL.get(uid, uid)
 
-# ==================== MAIN ====================
-async def run_bot():
-    await bot.start()
-    print(f"""
-╔══════════════════════╗
-║   ULTIMATE CLONER    ║
-╠══════════════════════╣
-║ • Admin: {Config.ADMIN_ID}
-║ • Version: 2.4
-╚══════════════════════╝
-""")
-    await idle()
+    for msg_id in range(start, end + 1):
+        try:
+            msg = await client.get_messages(message.chat.id, msg_id)
+            await forward_media(client, msg, uid, dest)
+            await asyncio.sleep(3)  # safe delay
+        except Exception as e:
+            await message.reply(f"Error forwarding message {msg_id}: {e}")
+            await asyncio.sleep(DEFAULT_SLEEP[min(msg_id - start, len(DEFAULT_SLEEP)-1)])
 
-if __name__ == "__main__":
-    # Start Flask server in separate thread
-    flask_thread = Thread(target=run_flask)
-    flask_thread.daemon = True
-    flask_thread.start()
+@app.on_message(filters.media & filters.private)
+async def forward_single(client, message):
+    if not is_sudo(message.from_user.id):
+        return await message.reply("You are not authorized.")
+    uid = message.from_user.id
+    dest = TARGET_CHANNEL.get(uid, uid)
+    await forward_media(client, message, uid, dest)
 
-    # Run the bot
-    loop = asyncio.get_event_loop()
+async def forward_media(client, message, uid, dest):
+    caption = message.caption or ""
+    if uid in WATERMARK_TEXT:
+        caption += f"\n\n⚠️ {WATERMARK_TEXT[uid]}"
+
     try:
-        loop.run_until_complete(run_bot())
-    except KeyboardInterrupt:
-        print("\nBot stopped manually")
+        if message.video:
+            await client.send_video(
+                dest, video=message.video.file_id,
+                caption=caption, thumb=THUMBNAIL_URL.get(uid)
+            )
+        elif message.photo:
+            await client.send_photo(
+                dest, photo=message.photo.file_id,
+                caption=caption
+            )
+        elif message.document:
+            await client.send_document(
+                dest, document=message.document.file_id,
+                caption=caption, thumb=THUMBNAIL_URL.get(uid)
+            )
+        else:
+            await message.copy(dest)
     except Exception as e:
-        print(f"Fatal error: {e}")
-    finally:
-        if bot.is_connected:
-            loop.run_until_complete(bot.stop())
-        loop.close()
+        await client.send_message(uid, f"Failed: {e}")
+
+app.run()
