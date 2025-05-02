@@ -1,22 +1,33 @@
 # Line 1–5: Flask server to pass health check
+# Line 1–5: Flask server to pass health check
 from flask import Flask
 import threading
 
-app = Flask('')
+web_app = Flask('')
 
-@app.route('/')
+@web_app.route('/')
 def home():
     return "Bot is running!"
 
 def run_web():
-    app.run(host='0.0.0.0', port=8080)
+    web_app.run(host='0.0.0.0', port=8080)
 
 threading.Thread(target=run_web).start()
-from pyrogram import Client, filters, types from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup from config import API_ID, API_HASH, BOT_TOKEN, OWNER_ID import os import asyncio
 
+# Pyrogram and core libraries
+from pyrogram import Client, filters, types
+from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup
+from config import API_ID, API_HASH, BOT_TOKEN, OWNER_ID
+import os
+import asyncio
+
+# Pyrogram Bot App Initialization
 app = Client("bot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
 
-sudo_users = set() target_channel = None default_thumb = None
+# Global variables
+sudo_users = set()
+target_channel = None
+default_thumb = None
 
 Buttons UI
 
