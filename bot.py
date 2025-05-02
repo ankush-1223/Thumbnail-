@@ -5,7 +5,10 @@ import asyncio
 from threading import Thread
 from flask import Flask
 from pyrogram import Client, filters, idle
-from pyrogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
+from pyrogram.types import (
+    Message, InlineKeyboardMarkup,
+    InlineKeyboardButton, CallbackQuery
+)
 
 # ==================== FLASK SERVER ====================
 app = Flask(__name__)
@@ -33,6 +36,7 @@ class Config:
     FLOOD_DELAY = 32  # seconds
     CLONING_ACTIVE = False
     STATUS_MSG = None
+    CURRENT_SETTING = None  # Track which setting is being configured
     
     # Statistics
     stats = {
@@ -86,16 +90,72 @@ async def start_cmd(client, message):
         return
 
     buttons = InlineKeyboardMarkup([
-        [InlineKeyboardButton("⚙️ Setup", callback_data="setup")],
-        [InlineKeyboardButton("🚀 Start", callback_data="start_clone")]
+        [InlineKeyboardButton("⚙️ Setup", callback_data="setup_menu")],
+        [InlineKeyboardButton("🚀 Start Cloning", callback_data="start_clone")]
     ])
     
     await message.reply(
         f"🤖 **Ultimate Cloner**\n\n"
-        f"Owner: `{Config.ADMIN_ID}`\n"
-        f"Status: `{'✅ Ready' if not Config.CLONING_ACTIVE else '🔄 Cloning'}`",
+        f"👑 Owner: `{Config.ADMIN_ID}`\n"
+        f"📊 Status: `{'✅ Ready' if not Config.CLONING_ACTIVE else '🔄 Cloning'}`\n"
+        f"⏱ Delay: `{Config.FLOOD_DELAY}s`\n\n"
+        f"▫️ Target: `{Config.TARGET_CHAT or 'Not set'}`\n"
+        f"▫️ Source: `{Config.SOURCE_CHAT or 'Not set'}`",
         reply_markup=buttons
     )
+
+# ==================== SETUP MENU ====================
+@bot.on_callback_query(filters.regex("^setup_menu$"))
+async def setup_menu(client, query):
+    buttons = InlineKeyboardMarkup([
+        [InlineKeyboardButton("🎯 Set Target", callback_data="set_target")],
+        [InlineKeyboardButton("🔗 Set Source", callback_data="set_source")],
+        [InlineKeyboardButton("⏱ Set Delay", callback_data="set_delay")],
+        [InlineKeyboardButton("🔙 Back", callback_data="main_menu")]
+    ])
+    
+    await query.message.edit(
+        "⚙️ **Bot Setup Menu**\n\n"
+        "Configure your cloning settings:",
+        reply_markup=buttons
+    )
+
+# ==================== SETUP HANDLERS ====================
+@bot.on_callback_query(filters.regex("^set_"))
+async def setup_handler(client, query):
+    if query.data == "set_target":
+        Config.CURRENT_SETTING = "target"
+        await query.message.edit("📢 Send me the target channel username or ID:")
+        
+    elif query.data == "set_source":
+        Config.CURRENT_SETTING = "source"
+        await query.message.edit("🔗 Send me the source channel username or ID:")
+        
+    elif query.data == "set_delay":
+        Config.CURRENT_SETTING = "delay"
+        await query.message.edit("⏱ Send me the delay between forwards (in seconds):")
+
+@bot.on_message(filters.private & filters.text & ~filters.command("start"))
+async def handle_setting_input(client, message):
+    if not is_admin(message.from_user.id):
+        return
+        
+    if Config.CURRENT_SETTING == "target":
+        Config.TARGET_CHAT = message.text.strip()
+        await message.reply(f"✅ Target set to: `{Config.TARGET_CHAT}`")
+        
+    elif Config.CURRENT_SETTING == "source":
+        Config.SOURCE_CHAT = message.text.strip()
+        await message.reply(f"✅ Source set to: `{Config.SOURCE_CHAT}`")
+        
+    elif Config.CURRENT_SETTING == "delay":
+        try:
+            Config.FLOOD_DELAY = int(message.text.strip())
+            await message.reply(f"✅ Delay set to: `{Config.FLOOD_DELAY}s`")
+        except ValueError:
+            await message.reply("❌ Please send a valid number")
+            
+    Config.CURRENT_SETTING = None
 
 # ==================== CLONING SYSTEM ====================
 async def clone_messages():
@@ -138,19 +198,22 @@ async def clone_messages():
         )
 
 # ==================== CALLBACK HANDLERS ====================
-@bot.on_callback_query()
-async def callback_handler(client, query):
-    if query.data == "start_clone":
-        if Config.CLONING_ACTIVE:
-            await query.answer("Already cloning!", show_alert=True)
-            return
-            
-        if not all([Config.TARGET_CHAT, Config.SOURCE_CHAT]):
-            await query.answer("Set target/source first!", show_alert=True)
-            return
-            
-        await query.answer("Starting clone job...")
-        asyncio.create_task(clone_messages())
+@bot.on_callback_query(filters.regex("^start_clone$"))
+async def start_cloning(client, query):
+    if Config.CLONING_ACTIVE:
+        await query.answer("Already cloning!", show_alert=True)
+        return
+        
+    if not all([Config.TARGET_CHAT, Config.SOURCE_CHAT]):
+        await query.answer("Set target/source first!", show_alert=True)
+        return
+        
+    await query.answer("Starting clone job...")
+    asyncio.create_task(clone_messages())
+
+@bot.on_callback_query(filters.regex("^main_menu$"))
+async def main_menu(client, query):
+    await start_cmd(client, query.message)
 
 # ==================== MAIN ====================
 async def run_bot():
@@ -160,7 +223,7 @@ async def run_bot():
 ║   ULTIMATE CLONER    ║
 ╠══════════════════════╣
 ║ • Admin: {Config.ADMIN_ID}
-║ • Version: 2.3
+║ • Version: 2.4
 ╚══════════════════════╝
 """)
     await idle()
