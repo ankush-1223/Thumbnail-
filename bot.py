@@ -28,12 +28,12 @@ bot = Client("forward_bot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKE
 # ================= START HANDLER =================
 @bot.on_message(filters.command("start") & filters.private)
 async def start(client: Client, message: Message):
-    name = message.from_user.first_name
+    name = message.from_user.first_name or "User"
 
     text = f"""ʜɪ {name}
 
-ɪ'ᴍ ᴀ ᴀᴅᴠᴀɴᴄᴇᴅ ꜰᴏʀᴡᴀʀᴅ ʙᴏᴛ
-ɪ ᴄᴀɴ ꜰᴏʀᴡᴀʀᴅ ᴀʟʟ ᴍᴇssᴀɢᴇ ꜰʀᴏᴍ ᴏɴᴇ ᴄʜᴀɴɴᴇʟ ᴛᴏ ᴀɴᴏᴛʜᴇʀ ᴄʜᴀɴɴᴇʟ
+ɪ'ᴍ ᴀ ᴀᴅᴠᴀɴᴄᴇᴅ ꜰᴏʀᴡᴀʀᴅ ʙᴏᴛ  
+ɪ ᴄᴀɴ ꜰᴏʀᴡᴀʀᴅ ᴀʟʟ ᴍᴇssᴀɢᴇꜱ ꜰʀᴏᴍ ᴏɴᴇ ᴄʜᴀɴɴᴇʟ ᴛᴏ ᴀɴᴏᴛʜᴇʀ ᴄʜᴀɴɴᴇʟ
 
 ᴄʟɪᴄᴋ ʜᴇʟᴘ ʙᴜᴛᴛᴏɴ ᴛᴏ ᴋɴᴏᴡ ᴍᴏʀᴇ ᴀʙᴏᴜᴛ ᴍᴇ"""
 
@@ -49,7 +49,7 @@ async def start(client: Client, message: Message):
 
     await message.reply(text, reply_markup=buttons)
 
-# ================= CALLBACK HANDLERS (Optional) =================
+# ================= CALLBACK HANDLERS =================
 @bot.on_callback_query(filters.regex("help"))
 async def help_cb(client, callback):
     await callback.answer("ℹ️ Help menu coming soon!", show_alert=True)
@@ -62,6 +62,6 @@ async def about_cb(client, callback):
 async def settings_cb(client, callback):
     await callback.answer("⚙️ Settings not available yet.", show_alert=True)
 
-# ================= RUN =================
-print("✅ Bot is running with health check server...")
+# ================= RUN BOT =================
+print("✅ Bot is running with health check server on port 8080...")
 bot.run()
