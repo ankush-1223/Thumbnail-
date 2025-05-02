@@ -12,165 +12,105 @@ def run_web():
     app.run(host='0.0.0.0', port=8080)
 
 threading.Thread(target=run_web).start()
-from pyrogram import Client, filters
-from pyrogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton
-from config import API_ID, API_HASH, BOT_TOKEN
-import asyncio
-import os
+from pyrogram import Client, filters, types from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup from config import API_ID, API_HASH, BOT_TOKEN, OWNER_ID import os import asyncio
 
-app = Client("cloner_bot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
+app = Client("bot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
 
-# Memory storage
-USER_STATE = {}
-SUDO_USERS = set()
-THUMBNAIL_URL = {}
-TARGET_CHANNEL = {}
-WATERMARK_TEXT = {}
+sudo_users = set() target_channel = None default_thumb = None
 
-DEFAULT_SLEEP = [3, 5, 8, 13, 21, 32]  # exponential sleep fallback
+Buttons UI
 
-def is_sudo(user_id):
-    return user_id in SUDO_USERS
+def main_menu(): return InlineKeyboardMarkup([ [ InlineKeyboardButton("Set Channel", callback_data="set_channel"), InlineKeyboardButton("Set Thumbnail", callback_data="set_thumb") ], [ InlineKeyboardButton("Reset Thumbnail", callback_data="reset_thumb"), InlineKeyboardButton("Add Sudo", callback_data="add_sudo") ], [ InlineKeyboardButton("Help", callback_data="help") ] ])
 
-@app.on_message(filters.command("start"))
-async def start(client, message):
-    await message.reply_text(
-        "Welcome! This bot can clone messages to your target channel with watermark/thumbnail.\n\n"
-        "**Commands:**\n"
-        "`/setchannel` - Set target channel ID\n"
-        "`/setthumb` - Set thumb URL or watermark\n"
-        "`/d` - Reset to default thumbnail\n"
-        "`/id` - Get ID\n"
-        "`/clone <start-end>` or forward messages directly",
-        quote=True
+@app.on_message(filters.command("start") & filters.private) async def start(client, message): await message.reply_text( "Welcome! Clone to target channel with watermark/thumbnail.", reply_markup=main_menu() )
+
+@app.on_message(filters.command("id") & filters.private) async def get_id(client, message): await message.reply_text(f"Your ID: {message.from_user.id}")
+
+@app.on_callback_query() async def callback_handler(client, callback_query): data = callback_query.data user_id = callback_query.from_user.id
+
+if data == "set_channel":
+    await callback_query.message.edit("Send the Channel ID (or /d to use personally):")
+    app.set_channel_user = user_id
+
+elif data == "set_thumb":
+    await callback_query.message.edit("Send thumbnail URL or text for watermark:")
+    app.set_thumb_user = user_id
+
+elif data == "reset_thumb":
+    global default_thumb
+    default_thumb = None
+    await callback_query.message.edit("Thumbnail removed permanently. Back to default.")
+
+elif data == "add_sudo":
+    await callback_query.message.edit("Send User ID to add as sudo:")
+    app.add_sudo_user = user_id
+
+elif data == "help":
+    await callback_query.message.edit(
+        "This bot clones messages/media to your channel with thumbnail or watermark.\n\n"
+        "/start - Show menu\n"
+        "/id - Get your Telegram ID\n"
+        "Clone: Forward any message here.\n\n"
+        "Control via buttons.",
+        reply_markup=main_menu()
     )
 
-@app.on_message(filters.command("id"))
-async def get_id(client, message):
-    await message.reply_text(f"Your ID: `{message.from_user.id}`\nChat ID: `{message.chat.id}`", quote=True)
+@app.on_message(filters.private) async def handle_input(client, message): user_id = message.from_user.id global target_channel, default_thumb
 
-@app.on_message(filters.command("setchannel"))
-async def set_channel(client, message):
-    if not is_sudo(message.from_user.id):
-        return await message.reply("You are not authorized.")
-    USER_STATE[message.from_user.id] = "waiting_channel"
-    await message.reply("Send the target channel ID (e.g., -1001234567890) or `/d` to clone personally.")
+if getattr(app, 'set_channel_user', None) == user_id:
+    channel = message.text.strip()
+    if channel == "/d":
+        target_channel = None
+        await message.reply("Personal use selected. No channel set.")
+    else:
+        target_channel = channel
+        await message.reply(f"Channel ID set to: `{channel}`")
+    app.set_channel_user = None
 
-@app.on_message(filters.command("setthumb"))
-async def set_thumb(client, message):
-    if not is_sudo(message.from_user.id):
-        return await message.reply("You are not authorized.")
-    USER_STATE[message.from_user.id] = "waiting_thumb"
-    await message.reply(
-        "Send thumbnail URL or send plain text (like Admin) for watermark.\n\nUse `/d` to reset permanently."
-    )
+elif getattr(app, 'set_thumb_user', None) == user_id:
+    input_text = message.text.strip()
+    if input_text.startswith("http"):
+        default_thumb = input_text
+        await message.reply("Thumbnail URL set.")
+    else:
+        default_thumb = f"WATERMARK:{input_text}"
+        await message.reply("Watermark text set.")
+    app.set_thumb_user = None
 
-@app.on_message(filters.command("d"))
-async def reset_thumb(client, message):
-    if not is_sudo(message.from_user.id):
-        return await message.reply("You are not authorized.")
-    uid = message.from_user.id
-    THUMBNAIL_URL.pop(uid, None)
-    WATERMARK_TEXT.pop(uid, None)
-    await message.reply("Thumbnail/watermark removed. Default Telegram behavior restored.")
-
-@app.on_message(filters.command("addsudo"))
-async def add_sudo(client, message):
-    if message.from_user.id != message.from_user.id:
-        return
-    if len(message.command) < 2:
-        return await message.reply("Usage: /addsudo <user_id>")
+elif getattr(app, 'add_sudo_user', None) == user_id:
     try:
-        SUDO_USERS.add(int(message.command[1]))
-        await message.reply("SUDO user added.")
+        new_id = int(message.text.strip())
+        sudo_users.add(new_id)
+        await message.reply(f"Added `{new_id}` to sudo users.")
     except:
-        await message.reply("Invalid ID.")
+        await message.reply("Invalid ID")
+    app.add_sudo_user = None
 
-@app.on_message(filters.text & filters.private)
-async def handle_input(client, message: Message):
-    uid = message.from_user.id
-    if not is_sudo(uid):
-        return await message.reply("You are not authorized.")
+elif message.forward_from_chat or message.forward_from:
+    if user_id == OWNER_ID or user_id in sudo_users:
+        await clone_message(message)
+    else:
+        await message.reply("You are not allowed to clone messages.")
 
-    if USER_STATE.get(uid) == "waiting_channel":
-        if message.text.strip() == "/d":
-            TARGET_CHANNEL[uid] = None
-            await message.reply("Now cloning personally.")
-        else:
-            try:
-                TARGET_CHANNEL[uid] = int(message.text.strip())
-                await message.reply(f"Target channel set to `{TARGET_CHANNEL[uid]}`.")
-            except:
-                await message.reply("Invalid channel ID.")
-        USER_STATE.pop(uid)
+async def clone_message(message): global target_channel, default_thumb media = message.media caption = message.caption or ""
 
-    elif USER_STATE.get(uid) == "waiting_thumb":
-        if message.text.strip() == "/d":
-            THUMBNAIL_URL.pop(uid, None)
-            WATERMARK_TEXT.pop(uid, None)
-            await message.reply("Thumbnail reset to default.")
-        elif message.text.startswith("http"):
-            THUMBNAIL_URL[uid] = message.text.strip()
-            WATERMARK_TEXT.pop(uid, None)
-            await message.reply("Thumbnail set from URL.")
-        else:
-            WATERMARK_TEXT[uid] = message.text.strip()
-            THUMBNAIL_URL.pop(uid, None)
-            await message.reply(f"Watermark set: {message.text.strip()}")
-        USER_STATE.pop(uid)
+# Apply watermark if needed
+if default_thumb and default_thumb.startswith("WATERMARK:"):
+    watermark = default_thumb.split(":", 1)[1]
+    caption = f"{caption}\n
 
-@app.on_message(filters.command("clone"))
-async def clone_range(client, message):
-    if not is_sudo(message.from_user.id):
-        return await message.reply("You are not authorized.")
-    args = message.text.split(" ")
-    if len(args) != 2 or '-' not in args[1]:
-        return await message.reply("Usage: /clone 1-100")
-    start, end = map(int, args[1].split('-'))
-    uid = message.from_user.id
-    dest = TARGET_CHANNEL.get(uid, uid)
+Watermark: {watermark}"
 
-    for msg_id in range(start, end + 1):
-        try:
-            msg = await client.get_messages(message.chat.id, msg_id)
-            await forward_media(client, msg, uid, dest)
-            await asyncio.sleep(3)  # safe delay
-        except Exception as e:
-            await message.reply(f"Error forwarding message {msg_id}: {e}")
-            await asyncio.sleep(DEFAULT_SLEEP[min(msg_id - start, len(DEFAULT_SLEEP)-1)])
+try:
+    # Forwarding/Cloning logic
+    await asyncio.sleep(32)  # flood wait safe timer
+    await app.copy_message(
+        chat_id=target_channel if target_channel else message.from_user.id,
+        from_chat_id=message.chat.id,
+        message_id=message.id,
+        caption=caption if caption else None
+    )
+except Exception as e:
+    await message.reply(f"Error: {e}")
 
-@app.on_message(filters.media & filters.private)
-async def forward_single(client, message):
-    if not is_sudo(message.from_user.id):
-        return await message.reply("You are not authorized.")
-    uid = message.from_user.id
-    dest = TARGET_CHANNEL.get(uid, uid)
-    await forward_media(client, message, uid, dest)
-
-async def forward_media(client, message, uid, dest):
-    caption = message.caption or ""
-    if uid in WATERMARK_TEXT:
-        caption += f"\n\n⚠️ {WATERMARK_TEXT[uid]}"
-
-    try:
-        if message.video:
-            await client.send_video(
-                dest, video=message.video.file_id,
-                caption=caption, thumb=THUMBNAIL_URL.get(uid)
-            )
-        elif message.photo:
-            await client.send_photo(
-                dest, photo=message.photo.file_id,
-                caption=caption
-            )
-        elif message.document:
-            await client.send_document(
-                dest, document=message.document.file_id,
-                caption=caption, thumb=THUMBNAIL_URL.get(uid)
-            )
-        else:
-            await message.copy(dest)
-    except Exception as e:
-        await client.send_message(uid, f"Failed: {e}")
-
-app.run()
+if name == "main": app.run()
