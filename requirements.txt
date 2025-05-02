@@ -1,5 +1,7 @@
-pyrogram==2.0.106
+
 tgcrypto==1.2.3
 python-dotenv==0.19.2
 Pillow==10.1.0
 flask==2.3.3
+python-telegram-bot==13.10
+telethon==1.24.0
